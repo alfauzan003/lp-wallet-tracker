@@ -1,5 +1,5 @@
 import { DuplicateError, type Db } from './db.js';
-import { escapeHtml, formatDuration, shortAddress, walletLink, walletName } from './format.js';
+import { escapeHtml, formatDuration, shortAddress, truncate, walletLink, walletName } from './format.js';
 import type { PollerStatus } from './poller.js';
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -61,10 +61,10 @@ export function cmdStatus(s: PollerStatus, now: Date): string {
     `Wallets: ${s.walletCount} · full cycle ≈ ${s.cycleSeconds}s`,
     `Pending close checks: ${s.pendingConfirms}`,
     s.lastError
-      ? `Last API error: ${escapeHtml(s.lastError.message)} (${ago(s.lastError.at, now)})`
+      ? `Last API error: ${escapeHtml(truncate(s.lastError.message))} (${ago(s.lastError.at, now)})`
       : 'Last API error: none',
     s.lastSendError
-      ? `Last send error: ${escapeHtml(s.lastSendError.message)} (${ago(s.lastSendError.at, now)})`
+      ? `Last send error: ${escapeHtml(truncate(s.lastSendError.message))} (${ago(s.lastSendError.at, now)})`
       : 'Last send error: none',
   ];
   if (s.apiDown) lines.push('API: ⚠️ failing');

@@ -9,6 +9,7 @@ import {
   pickCaTokens,
   rangePercent,
   shortAddress,
+  truncate,
   walletLink,
   walletName,
 } from '../src/format.js';
@@ -47,6 +48,15 @@ describe('helpers', () => {
     expect(link).toContain('chain=ROBINHOOD');
     expect(link).toContain('&amp;chain=ROBINHOOD');
     expect(link).toContain('>0xABCD…ABCD</a>');
+  });
+
+  it('truncate leaves short strings and cuts long ones with an ellipsis', () => {
+    expect(truncate('abc')).toBe('abc');
+    expect(truncate('x'.repeat(300))).toBe('x'.repeat(300));
+    const cut = truncate('x'.repeat(301));
+    expect(cut).toHaveLength(300);
+    expect(cut.endsWith('…')).toBe(true);
+    expect(truncate('abcdef', 4)).toBe('abc…');
   });
 
   it('walletName falls back to the short address and escapes labels', () => {
@@ -267,6 +277,12 @@ describe('status messages', () => {
   });
   it('formatApiDown escapes the reason', () => {
     expect(formatApiDown('HTTP <500>')).toBe('⚠️ LP Agent API failing: HTTP &lt;500&gt;');
+  });
+  it('formatApiDown truncates a long reason', () => {
+    const out = formatApiDown('<'.repeat(5000));
+    expect(out.length).toBeLessThan(400 * 4); // escaped after truncation: at most 300 chars of input
+    expect(out).toContain('…');
+    expect(formatApiDown('x'.repeat(5000)).length).toBeLessThan(400);
   });
   it('formatApiRecovered', () => {
     expect(formatApiRecovered()).toBe('✅ LP Agent API recovered');

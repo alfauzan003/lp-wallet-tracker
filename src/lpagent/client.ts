@@ -95,7 +95,7 @@ export function createLpAgentClient(opts: {
 
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
-      throw new LpAgentError('invalid_response', `unexpected response shape: ${parsed.error.message}`, {
+      throw new LpAgentError('invalid_response', `unexpected response shape: ${summarizeIssues(parsed.error)}`, {
         status: res.status,
         cause: parsed.error,
       });

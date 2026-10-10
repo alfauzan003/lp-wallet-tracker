@@ -17,6 +17,11 @@ export function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** Cuts `s` to at most `max` characters, ending with "…" when cut. Apply before escaping. */
+export function truncate(s: string, max = 300): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
 export function shortAddress(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
@@ -190,7 +195,7 @@ export function formatBaselined(w: WalletRef, count: number): string {
 }
 
 export function formatApiDown(reason: string): string {
-  return `⚠️ LP Agent API failing: ${escapeHtml(reason)}`;
+  return `⚠️ LP Agent API failing: ${escapeHtml(truncate(reason))}`;
 }
 
 export function formatApiRecovered(): string {

@@ -173,6 +173,19 @@ describe('cmdStatus', () => {
     expect(r).toContain('API: ⚠️ failing');
   });
 
+  it('status truncates long error messages before escaping', () => {
+    const at = new Date(now.getTime() - 10_000);
+    const r = cmdStatus(
+      status({ lastError: { message: 'e'.repeat(5000), at }, lastSendError: { message: 's'.repeat(5000), at } }),
+      now,
+    );
+    expect(r.length).toBeLessThan(1000);
+    expect(r).toContain(`Last API error: ${'e'.repeat(299)}… (10s ago)`);
+    expect(r).toContain(`Last send error: ${'s'.repeat(299)}… (10s ago)`);
+    const escaped = cmdStatus(status({ lastError: { message: '<'.repeat(5000), at } }), now);
+    expect(escaped).toContain(`Last API error: ${'&lt;'.repeat(299)}… (10s ago)`);
+  });
+
   it('status shows last send error', () => {
     const r = cmdStatus(
       status({ lastSendError: { message: 'chat <not> found', at: new Date(now.getTime() - 10_000) } }),

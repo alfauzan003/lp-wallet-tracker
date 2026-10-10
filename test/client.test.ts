@@ -147,6 +147,15 @@ describe('lp agent client', () => {
     expect(err2.kind).toBe('invalid_response');
   });
 
+  it('invalid_response message names only the first issue and counts the rest', async () => {
+    const { client } = stub({ status: 'success', data: [{}, {}, {}] });
+    const err = await client.getOpening(OWNER).catch((e) => e);
+    expect(err).toBeInstanceOf(LpAgentError);
+    expect(err.kind).toBe('invalid_response');
+    expect(err.message).toMatch(/^unexpected response shape: data\.0\.tokenId: .+ \(\+\d+ more\)$/);
+    expect(err.message.length).toBeLessThan(200);
+  });
+
   it('rejects non-json body', async () => {
     const { client } = stub('<html>oops</html>');
     const err = await client.getOpening(OWNER).catch((e) => e);
