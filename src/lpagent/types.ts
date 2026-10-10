@@ -133,7 +133,8 @@ const openPositionSchema = openPositionRaw.transform((r, ctx): OpenPosition => (
   createdAt: r.createdAt,
 }));
 
-const closedPositionSchema = z
+/** One historical item; parsed per item so a bad item can be skipped. */
+export const closedPositionSchema = z
   .object({
     tokenId: idString,
     protocol: z.string().min(1),
@@ -167,9 +168,10 @@ export const openingResponseSchema = z
   })
   .transform((r) => r.data);
 
+/** Envelope only: items are parsed one by one with `closedPositionSchema`. */
 export const historicalResponseSchema = z
   .object({
     status: z.literal('success'),
-    data: z.object({ data: z.array(closedPositionSchema) }),
+    data: z.object({ data: z.array(z.unknown()) }),
   })
   .transform((r) => r.data.data);

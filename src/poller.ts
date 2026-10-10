@@ -4,6 +4,7 @@ import { confirmCloses, diffOpening, type AlertEvent } from './detector.js';
 import type { Db, WalletRecord } from './db.js';
 import { formatApiDown, formatApiRecovered, formatBaselined, formatEvent } from './format.js';
 import type { LpAgentClient } from './lpagent/client.js';
+import type { ClosedPosition } from './lpagent/types.js';
 
 /** Rejects if delivery failed. */
 export type Notify = (html: string) => Promise<void>;
@@ -174,15 +175,18 @@ export function createPoller(deps: {
     const oldest = Math.min(...suspects.map((r) => Date.parse(r.lastSeenAt)));
     const from = new Date(oldest - HISTORICAL_LOOKBACK_MS);
 
-    let historical;
+    let historical: ClosedPosition[];
+    let historicalFailed = false;
     try {
       historical = await client.getHistorical(address, from);
     } catch (err) {
       await onApiError(err);
-      requeueConfirm(address);
-      return;
+      // Still force-close suspects past the miss limit. Safe: miss counts only rise
+      // on successful /opening responses, never on a failed request.
+      historical = [];
+      historicalFailed = true;
     }
-    await onApiSuccess();
+    if (!historicalFailed) await onApiSuccess();
 
     const current = db.getWallet(address);
     if (!current) {
@@ -205,7 +209,8 @@ export function createPoller(deps: {
     }
 
     db.applyPollResult(address, { upserts: [], deletes: result.deletes });
-    pendingConfirm.delete(address);
+    if (historicalFailed && result.deletes.length < suspects.length) requeueConfirm(address);
+    else pendingConfirm.delete(address);
   }
 
   async function tick(): Promise<void> {

@@ -356,6 +356,31 @@ describe('poller', () => {
     expect(s.db.getPositions(A)[0].missCount).toBe(1);
   });
 
+  it('forced close still happens while historical keeps failing', async () => {
+    const s = setup();
+    const p1 = makePosition({ tokenId: '1' });
+    s.db.applyPollResult(A, { upserts: [makeRow(p1)], deletes: [], markBaselined: true });
+    s.openingQueue.push([]);
+    s.historicalQueue.push(new LpAgentError('server', 'historical down'));
+
+    for (let i = 0; i < 5; i++) {
+      await s.poller.tick(); // opening (miss 1), confirm, opening (2), confirm, opening (3)
+      s.clock.t += 301_000; // past any backoff
+      expect(s.sent).toHaveLength(0);
+    }
+    expect(s.db.getPositions(A)[0]!.missCount).toBe(3);
+    expect(s.poller.status().pendingConfirms).toBe(1);
+
+    await s.poller.tick(); // third confirm: historical fails again, miss limit reached
+    expect(s.historicalCalls).toHaveLength(3);
+    expect(s.sent).toHaveLength(1);
+    expect(s.sent[0]).toContain('CLOSED');
+    expect(s.sent[0]).toContain('PnL: unavailable');
+    expect(s.db.getPositions(A)).toHaveLength(0);
+    expect(s.poller.status().pendingConfirms).toBe(0);
+    expect(s.poller.status().lastError?.message).toBe('historical down');
+  });
+
   it('a send failure does not pin the poller to one wallet', async () => {
     const s = setup({
       wallets: [A, B],

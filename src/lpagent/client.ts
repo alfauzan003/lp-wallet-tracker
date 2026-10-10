@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import {
+  closedPositionSchema,
   historicalResponseSchema,
   openingResponseSchema,
   type ClosedPosition,
@@ -29,11 +30,27 @@ const DEFAULT_BASE_URL = 'https://api.lpagent.io/open-api/v1';
 const CHAIN = 'ROBINHOOD';
 const HISTORICAL_PAGE_SIZE = 100;
 
+export interface SkippedItemInfo {
+  endpoint: 'historical';
+  index: number;
+  reason: string;
+}
+
+/** First zod issue only, plus a count of the rest, so error text stays short. */
+function summarizeIssues(error: z.ZodError): string {
+  const [first, ...rest] = error.issues;
+  if (!first) return 'invalid value';
+  const path = first.path.length > 0 ? `${first.path.join('.')}: ` : '';
+  return `${path}${first.message}${rest.length > 0 ? ` (+${rest.length} more)` : ''}`;
+}
+
 export function createLpAgentClient(opts: {
   apiKey: string;
   baseUrl?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  /** Called for each historical item that fails to parse and is skipped. */
+  onSkippedItem?: (info: SkippedItemInfo) => void;
 }): LpAgentClient {
   const baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
   const fetchFn = opts.fetch ?? fetch;
@@ -88,11 +105,21 @@ export function createLpAgentClient(opts: {
 
   return {
     getOpening: (owner) => request('/lp-positions/opening', { owner }, openingResponseSchema),
-    getHistorical: (owner, from) =>
-      request(
+    async getHistorical(owner, from) {
+      const items = await request(
         '/lp-positions/historical',
         { owner, from_date: from.toISOString(), pageSize: String(HISTORICAL_PAGE_SIZE) },
         historicalResponseSchema,
-      ),
+      );
+      // Lenient per item: a skipped item only delays a close (the forced close still applies),
+      // whereas failing the whole page would block every close for the wallet.
+      const closed: ClosedPosition[] = [];
+      items.forEach((item, index) => {
+        const parsed = closedPositionSchema.safeParse(item);
+        if (parsed.success) closed.push(parsed.data);
+        else opts.onSkippedItem?.({ endpoint: 'historical', index, reason: summarizeIssues(parsed.error) });
+      });
+      return closed;
+    },
   };
 }

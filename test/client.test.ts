@@ -78,6 +78,37 @@ describe('lp agent client', () => {
     expect(res[0]).toMatchObject({ closeAt: 'b', pnlValue: null, pnlPercent: null, collectedFee: 0 });
   });
 
+  it('skips historical items that fail to parse and reports them', async () => {
+    const good = { tokenId: 2, protocol: 'uniswap_v3', createdAt: 'a', closeAt: 'b', collectedFee: 1 };
+    const body = {
+      status: 'success',
+      data: { data: [{ tokenId: 1, protocol: 'uniswap_v3', createdAt: 'a' }, good] },
+    };
+    const skipped: { endpoint: string; index: number; reason: string }[] = [];
+    const fetchFn = (async () => new Response(JSON.stringify(body), { status: 200 })) as typeof fetch;
+    const client = createLpAgentClient({ apiKey: 'k', fetch: fetchFn, onSkippedItem: (i) => skipped.push(i) });
+    const res = await client.getHistorical(OWNER, new Date());
+    expect(res).toHaveLength(1);
+    expect(res[0]!.tokenId).toBe('2');
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toMatchObject({ endpoint: 'historical', index: 0 });
+    expect(skipped[0]!.reason).toContain('closeAt');
+  });
+
+  it('skips bad historical items without a callback', async () => {
+    const body = { status: 'success', data: { data: [{ protocol: 'uniswap_v3' }] } };
+    const { client } = stub(body);
+    await expect(client.getHistorical(OWNER, new Date())).resolves.toEqual([]);
+  });
+
+  it('opening stays strict: one bad item fails the response', async () => {
+    const body = { status: 'success', data: [{ ...opening.data[0], tokenId: undefined }] };
+    const { client } = stub(body);
+    const err = await client.getOpening(OWNER).catch((e) => e);
+    expect(err).toBeInstanceOf(LpAgentError);
+    expect(err.kind).toBe('invalid_response');
+  });
+
   it.each([
     [429, 'rate_limit'],
     [503, 'server'],

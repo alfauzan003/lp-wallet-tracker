@@ -22,7 +22,10 @@ async function main(): Promise<void> {
   });
 
   const db = openDb(config.dbPath);
-  const client = createLpAgentClient({ apiKey: config.lpagentApiKey });
+  const client = createLpAgentClient({
+    apiKey: config.lpagentApiKey,
+    onSkippedItem: (info) => logger.warn(info, 'skipped unparseable LP Agent item'),
+  });
   const bot = createBot({
     token: config.telegramBotToken,
     ownerId: config.telegramOwnerId,
