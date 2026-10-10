@@ -162,15 +162,16 @@ export function createPoller(deps: {
     pendingConfirm.add(address);
   }
 
-  async function confirmPoll(address: string): Promise<void> {
+  /** Returns false when no request was made (nothing left to confirm). */
+  async function confirmPoll(address: string): Promise<boolean> {
     if (!db.getWallet(address)) {
       pendingConfirm.delete(address);
-      return;
+      return false;
     }
     const suspects = db.getPositions(address).filter((r) => r.missCount > 0);
     if (suspects.length === 0) {
       pendingConfirm.delete(address);
-      return;
+      return false;
     }
     const oldest = Math.min(...suspects.map((r) => Date.parse(r.lastSeenAt)));
     const from = new Date(oldest - HISTORICAL_LOOKBACK_MS);
@@ -191,7 +192,7 @@ export function createPoller(deps: {
     const current = db.getWallet(address);
     if (!current) {
       pendingConfirm.delete(address);
-      return;
+      return true;
     }
 
     const result = confirmCloses(current, suspects, historical, {
@@ -205,12 +206,13 @@ export function createPoller(deps: {
       recordSendError(err);
       logger.error({ err, wallet: address }, 'failed to send alert; not committing confirm');
       requeueConfirm(address);
-      return;
+      return true;
     }
 
     db.applyPollResult(address, { upserts: [], deletes: result.deletes });
     if (historicalFailed && result.deletes.length < suspects.length) requeueConfirm(address);
     else pendingConfirm.delete(address);
+    return true;
   }
 
   async function tick(): Promise<void> {
@@ -222,8 +224,8 @@ export function createPoller(deps: {
     // poll: otherwise a wallet whose confirm keeps failing would starve opening polls.
     if (!confirming.done && !(lastTickWasConfirm && wallet)) {
       lastTickWasConfirm = true;
-      await confirmPoll(confirming.value);
-      return;
+      // A confirm with nothing left to check makes no request: use the slot for an opening poll.
+      if (await confirmPoll(confirming.value)) return;
     }
     if (!wallet) return;
     lastTickWasConfirm = false;

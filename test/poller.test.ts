@@ -381,6 +381,44 @@ describe('poller', () => {
     expect(s.poller.status().lastError?.message).toBe('historical down');
   });
 
+  it('a confirm tick with no suspects left polls opening in the same tick', async () => {
+    const p1 = makePosition({ tokenId: '1' });
+    const s = setup({
+      seed: (db) =>
+        db.applyPollResult(A, {
+          upserts: [makeRow(p1, { missCount: 1, lastSeenAt: SEEN })],
+          deletes: [],
+          markBaselined: true,
+        }),
+    });
+    expect(s.poller.status().pendingConfirms).toBe(1);
+    s.db.applyPollResult(A, { upserts: [makeRow(p1)], deletes: [] }); // reappeared: no suspects
+    s.openingQueue.push([p1]);
+    await s.poller.tick();
+    expect(s.historicalCalls).toHaveLength(0);
+    expect(s.openingCalls).toEqual([A]);
+    expect(s.poller.status().pendingConfirms).toBe(0);
+  });
+
+  it('a confirm tick for a removed wallet polls opening in the same tick', async () => {
+    const pA = makePosition({ tokenId: '1' });
+    const s = setup({
+      wallets: [A, B],
+      seed: (db) =>
+        db.applyPollResult(A, {
+          upserts: [makeRow(pA, { missCount: 1, lastSeenAt: SEEN })],
+          deletes: [],
+          markBaselined: true,
+        }),
+    });
+    s.db.removeWallet(A);
+    s.openingQueue.push([]);
+    await s.poller.tick();
+    expect(s.historicalCalls).toHaveLength(0);
+    expect(s.openingCalls).toEqual([B]);
+    expect(s.poller.status().pendingConfirms).toBe(0);
+  });
+
   it('a send failure does not pin the poller to one wallet', async () => {
     const s = setup({
       wallets: [A, B],
