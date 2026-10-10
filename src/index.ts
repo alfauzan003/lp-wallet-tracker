@@ -58,6 +58,14 @@ async function main(): Promise<void> {
     logger.error({ err: err.error, updateId: err.ctx?.update?.update_id }, 'bot handler error');
   });
 
+  // Validates the token (getMe) before any LP Agent request is made.
+  try {
+    await bot.init();
+  } catch (err) {
+    logger.error({ err }, 'Telegram bot init failed; check TELEGRAM_BOT_TOKEN');
+    process.exit(1);
+  }
+
   try {
     await bot.api.setMyCommands(BOT_COMMANDS);
   } catch (err) {

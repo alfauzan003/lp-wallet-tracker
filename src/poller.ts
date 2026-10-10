@@ -244,13 +244,14 @@ export function createPoller(deps: {
 
   async function loop(): Promise<void> {
     while (!stopRequested) {
+      // Sleep first: a restart (or crash loop) right after a request never exceeds RPM_LIMIT.
+      await sleep(intervalMs);
+      if (stopRequested) break;
       try {
         await tick();
       } catch (err) {
         logger.error({ err }, 'poller tick failed');
       }
-      if (stopRequested) break;
-      await sleep(intervalMs);
     }
   }
 

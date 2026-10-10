@@ -515,12 +515,31 @@ describe('poller', () => {
       s.poller.start();
       s.poller.start();
       await vi.advanceTimersByTimeAsync(0);
+      expect(s.openingCalls).toHaveLength(0); // first tick waits one interval (12s at 5 rpm)
+      await vi.advanceTimersByTimeAsync(11_999);
+      expect(s.openingCalls).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
       expect(s.openingCalls).toHaveLength(1);
       const stopped = s.poller.stop();
       await vi.advanceTimersByTimeAsync(0);
       await stopped; // resolves without advancing 12s
       await vi.advanceTimersByTimeAsync(60_000);
       expect(s.openingCalls).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stop during the initial wait makes no request', async () => {
+    vi.useFakeTimers();
+    try {
+      const s = setup();
+      s.openingQueue.push([]);
+      s.poller.start();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await s.poller.stop();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(s.openingCalls).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }
