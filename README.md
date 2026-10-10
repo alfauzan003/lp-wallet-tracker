@@ -56,19 +56,22 @@ npm run dev
 ## Deploy to a VPS (Ubuntu/Debian)
 
 ```sh
-# Node 22 via NodeSource
+# Prerequisites and Node 22 via NodeSource
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl git
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs git
+sudo apt-get install -y nodejs
 
-# Service user and checkout
-sudo useradd --system --create-home --home-dir /opt/lp-tracker --shell /usr/sbin/nologin lptracker
+# Service user (the home directory is created by git clone below, not by useradd)
+sudo useradd --system --no-create-home --home-dir /opt/lp-tracker --shell /usr/sbin/nologin lptracker
 sudo git clone <your-repo-url> /opt/lp-tracker
 sudo chown -R lptracker:lptracker /opt/lp-tracker
 
-# Build (npm ci needs dev dependencies because tsc builds the project)
+# Build (npm ci needs dev dependencies because tsc builds the project).
+# -H sets HOME to /opt/lp-tracker, so the npm cache (~/.npm) is writable.
 cd /opt/lp-tracker
-sudo -u lptracker npm ci
-sudo -u lptracker npm run build
+sudo -H -u lptracker npm ci
+sudo -H -u lptracker npm run build
 
 # Configuration
 sudo -u lptracker cp .env.example .env
@@ -97,7 +100,7 @@ journalctl -u lp-tracker -f
 
 ```sh
 cd /opt/lp-tracker
-sudo -u lptracker git pull && sudo -u lptracker npm ci && sudo -u lptracker npm run build && sudo systemctl restart lp-tracker
+sudo -H -u lptracker git pull && sudo -H -u lptracker npm ci && sudo -H -u lptracker npm run build && sudo systemctl restart lp-tracker
 ```
 
 ### Backup
