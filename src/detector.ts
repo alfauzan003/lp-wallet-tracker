@@ -74,7 +74,7 @@ export function diffOpening(
     }
 
     const deltaUsd = p.collectedFee - row.feeBaselineUsd;
-    if (!opts.baselining && deltaUsd >= opts.feeAlertMinUsd) {
+    if (!opts.baselining && deltaUsd > 0 && deltaUsd >= opts.feeAlertMinUsd) {
       events.push({
         type: 'fee_collected',
         wallet,

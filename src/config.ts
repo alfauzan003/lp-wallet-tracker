@@ -10,14 +10,18 @@ export interface Config {
   dbPath: string;
 }
 
+/** An empty or whitespace-only value counts as unset, so the default applies. */
+const optional = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), schema);
+
 const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   TELEGRAM_OWNER_ID: z.coerce.number().int().positive(),
   LPAGENT_API_KEY: z.string().min(1),
-  RPM_LIMIT: z.coerce.number().int().positive().default(5),
-  FEE_ALERT_MIN_USD: z.coerce.number().nonnegative().default(1),
-  CLOSE_MISS_LIMIT: z.coerce.number().int().positive().default(3),
-  DB_PATH: z.string().min(1).default("./data/tracker.db"),
+  RPM_LIMIT: optional(z.coerce.number().int().positive().default(5)),
+  FEE_ALERT_MIN_USD: optional(z.coerce.number().nonnegative().default(1)),
+  CLOSE_MISS_LIMIT: optional(z.coerce.number().int().positive().default(3)),
+  DB_PATH: optional(z.string().min(1).default("./data/tracker.db")),
 });
 
 export function loadConfig(env: Record<string, string | undefined>): Config {

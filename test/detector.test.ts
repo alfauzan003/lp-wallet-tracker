@@ -70,6 +70,19 @@ describe('diffOpening', () => {
     if (ev.type === 'fee_collected') expect(ev.deltaUsd).toBeCloseTo(1.2);
   });
 
+  it('feeAlertMinUsd 0 with unchanged fees emits nothing', () => {
+    const row = makeRow(makePosition({ collectedFee: 10 }));
+    const r = diffOpening(wallet, [row], [makePosition({ collectedFee: 10 })], { ...opts, feeAlertMinUsd: 0 });
+    expect(r.events).toHaveLength(0);
+  });
+
+  it('feeAlertMinUsd 0 alerts on any increase', () => {
+    const row = makeRow(makePosition({ collectedFee: 10 }));
+    const r = diffOpening(wallet, [row], [makePosition({ collectedFee: 10.01 })], { ...opts, feeAlertMinUsd: 0 });
+    expect(r.events).toHaveLength(1);
+    expect(r.events[0]!.type).toBe('fee_collected');
+  });
+
   it('fee decrease does not lower baseline', () => {
     const row = makeRow(makePosition({ collectedFee: 10 }));
     const r = diffOpening(wallet, [row], [makePosition({ collectedFee: 0 })], opts);

@@ -25,6 +25,24 @@ describe("loadConfig", () => {
     expect(c.feeAlertMinUsd).toBe(2.5);
   });
 
+  it("treats blank optional vars as unset", () => {
+    const c = loadConfig({
+      ...required,
+      RPM_LIMIT: "",
+      FEE_ALERT_MIN_USD: "  ",
+      CLOSE_MISS_LIMIT: "",
+      DB_PATH: " ",
+    });
+    expect(c.rpmLimit).toBe(5);
+    expect(c.feeAlertMinUsd).toBe(1);
+    expect(c.closeMissLimit).toBe(3);
+    expect(c.dbPath).toBe("./data/tracker.db");
+  });
+
+  it("accepts FEE_ALERT_MIN_USD=0", () => {
+    expect(loadConfig({ ...required, FEE_ALERT_MIN_USD: "0" }).feeAlertMinUsd).toBe(0);
+  });
+
   it("throws naming missing vars", () => {
     expect(() => loadConfig({})).toThrow(/TELEGRAM_BOT_TOKEN/);
     expect(() => loadConfig({})).toThrow(/TELEGRAM_OWNER_ID/);
