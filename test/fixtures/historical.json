@@ -1,0 +1,18 @@
+{
+  "status": "success",
+  "data": {
+    "data": [
+      {
+        "status": "Close",
+        "tokenId": "48213",
+        "protocol": "uniswap_v3",
+        "pairName": "WETH/USDG",
+        "createdAt": "2026-09-20T08:00:00.000Z",
+        "closeAt": "2026-10-09T09:15:00.000Z",
+        "collectedFee": 151.1,
+        "pnl": { "value": 184.3, "percent": 7.5 }
+      }
+    ],
+    "pagination": { "page": 1, "limit": 100, "total": 1 }
+  }
+}

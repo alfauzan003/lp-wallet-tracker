@@ -1,0 +1,88 @@
+{
+  "status": "success",
+  "count": 2,
+  "data": [
+    {
+      "status": "Open",
+      "tokenId": 48213,
+      "position": "0xpos1",
+      "id": "pos-1",
+      "pairName": "WETH/USDG",
+      "protocol": "uniswap_v3",
+      "pool": "0xPoolAaaa000000000000000000000000000001",
+      "poolInfo": { "fee": 3000, "tickSpacing": 60 },
+      "token0": "0x4200000000000000000000000000000000000006",
+      "token1": "0xAbCdEf0000000000000000000000000000000001",
+      "token0Info": {
+        "token_symbol": "WETH",
+        "token_name": "Wrapped Ether",
+        "token_decimals": 18,
+        "token_address": "0x4200000000000000000000000000000000000006",
+        "logo": "https://example.com/weth.png"
+      },
+      "token1Info": {
+        "token_symbol": "USDG",
+        "token_name": "Global Dollar",
+        "token_decimals": 6,
+        "token_address": "0xAbCdEf0000000000000000000000000000000001",
+        "logo": "https://example.com/usdg.png"
+      },
+      "tokenName0": "WETH",
+      "tokenName1": "USDG",
+      "decimal0": 18,
+      "decimal1": 6,
+      "owner": "0xabc0000000000000000000000000000000000001",
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "inputValue": 5000.5,
+      "inputNative": 1.25,
+      "collectedFee": 112.4,
+      "collectedFeeNative": 0.028,
+      "uncollectedFee": 3.2,
+      "tickLower": -200000,
+      "tickUpper": -190000,
+      "priceRange": [3500, 4500],
+      "inRange": true,
+      "price0": 4000.1,
+      "price1": 0.00025,
+      "pnl": { "value": 120.5, "percent": 2.4 }
+    },
+    {
+      "status": "Open",
+      "tokenId": "9001",
+      "position": "0xpos2",
+      "id": "pos-2",
+      "pairName": "TSLA/USDG",
+      "protocol": "uniswap_v3",
+      "pool": "0xPoolBbbb000000000000000000000000000002",
+      "poolInfo": { "fee": 500, "tickSpacing": 10 },
+      "token0": "0xTSLA00000000000000000000000000000000001",
+      "token1": "0xAbCdEf0000000000000000000000000000000001",
+      "token0Info": {
+        "token_symbol": "TSLA",
+        "token_name": "Tesla",
+        "token_decimals": 18,
+        "token_address": "0xTSLA00000000000000000000000000000000001",
+        "logo": null
+      },
+      "token1Info": {
+        "token_symbol": "USDG",
+        "token_name": "Global Dollar",
+        "token_decimals": 6,
+        "token_address": "0xAbCdEf0000000000000000000000000000000001",
+        "logo": null
+      },
+      "owner": "0xabc0000000000000000000000000000000000001",
+      "createdAt": "2026-10-05T12:30:00.000Z",
+      "inputValue": "1200",
+      "inputNative": "0.3",
+      "collectedFee": "5.5",
+      "collectedFeeNative": null,
+      "tickLower": 100,
+      "tickUpper": 500,
+      "inRange": false,
+      "price0": "250.75",
+      "price1": "0.004",
+      "pnl": { "value": -3.1, "percent": -0.25 }
+    }
+  ]
+}
