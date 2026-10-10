@@ -14,6 +14,8 @@ export interface PollerStatus {
   cycleSeconds: number;
   pendingConfirms: number;
   lastError: { message: string; at: Date } | null;
+  /** Most recent Telegram delivery failure for an event/baseline message; never cleared automatically. */
+  lastSendError: { message: string; at: Date } | null;
   apiDown: boolean;
 }
 
@@ -49,6 +51,8 @@ export function createPoller(deps: {
   let errorSince: number | null = null;
   let downSent = false;
   let lastError: { message: string; at: Date } | null = null;
+  let lastSendError: { message: string; at: Date } | null = null;
+  let lastTickWasConfirm = false;
 
   let running: Promise<void> | null = null;
   let stopRequested = false;
@@ -94,6 +98,10 @@ export function createPoller(deps: {
     }
   }
 
+  function recordSendError(err: unknown): void {
+    lastSendError = { message: err instanceof Error ? err.message : String(err), at: now() };
+  }
+
   async function sendAll(events: AlertEvent[]): Promise<void> {
     for (const e of events) await notify(formatEvent(e));
   }
@@ -102,7 +110,6 @@ export function createPoller(deps: {
     const rows = db.getPositions(wallet.address);
     const baselining = !wallet.baselined;
 
-    const previous = lastPolled;
     lastPolled = wallet.address;
 
     let fresh;
@@ -131,8 +138,10 @@ export function createPoller(deps: {
       await sendAll(diff.events);
       if (baselining) await notify(formatBaselined(current, fresh.length));
     } catch (err) {
+      recordSendError(err);
       logger.error({ err, wallet: wallet.address }, 'failed to send alert; not committing poll');
-      lastPolled = previous; // retry the same wallet next tick
+      // lastPolled stays advanced: the wallet is retried on its next round-robin turn,
+      // so one permanently undeliverable message cannot starve the other wallets.
       return;
     }
 
@@ -144,6 +153,12 @@ export function createPoller(deps: {
       polledAt: pollTime,
     });
     if (diff.hasSuspects) pendingConfirm.add(wallet.address);
+  }
+
+  /** Move a failed confirm to the back so one bad wallet cannot block the others. */
+  function requeueConfirm(address: string): void {
+    pendingConfirm.delete(address);
+    pendingConfirm.add(address);
   }
 
   async function confirmPoll(address: string): Promise<void> {
@@ -164,7 +179,8 @@ export function createPoller(deps: {
       historical = await client.getHistorical(address, from);
     } catch (err) {
       await onApiError(err);
-      return; // stays in pendingConfirm
+      requeueConfirm(address);
+      return;
     }
     await onApiSuccess();
 
@@ -182,7 +198,9 @@ export function createPoller(deps: {
     try {
       await sendAll(result.events);
     } catch (err) {
+      recordSendError(err);
       logger.error({ err, wallet: address }, 'failed to send alert; not committing confirm');
+      requeueConfirm(address);
       return;
     }
 
@@ -193,13 +211,17 @@ export function createPoller(deps: {
   async function tick(): Promise<void> {
     if (now().getTime() < nextAllowedAt) return;
 
+    const wallet = pickNextWallet();
     const confirming = pendingConfirm.values().next();
-    if (!confirming.done) {
+    // Confirms take priority, but never two ticks in a row while a wallet exists to
+    // poll: otherwise a wallet whose confirm keeps failing would starve opening polls.
+    if (!confirming.done && !(lastTickWasConfirm && wallet)) {
+      lastTickWasConfirm = true;
       await confirmPoll(confirming.value);
       return;
     }
-    const wallet = pickNextWallet();
     if (!wallet) return;
+    lastTickWasConfirm = false;
     await openingPoll(wallet);
   }
 
@@ -249,6 +271,7 @@ export function createPoller(deps: {
         cycleSeconds: (walletCount * intervalMs) / 1000,
         pendingConfirms: pendingConfirm.size,
         lastError,
+        lastSendError,
         apiDown: errorSince !== null && now().getTime() - errorSince >= API_DOWN_AFTER_MS,
       };
     },

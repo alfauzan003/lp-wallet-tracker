@@ -24,6 +24,7 @@ function closedOf(p: OpenPosition, overrides: Partial<ClosedPosition> = {}): Clo
   };
 }
 
+type HistoricalStep = ClosedPosition[] | Error | ((owner: string) => ClosedPosition[] | Error);
 type OpeningStep = OpenPosition[] | Error | ((owner: string) => OpenPosition[]);
 
 function setup(
@@ -34,7 +35,7 @@ function setup(
   opts.seed?.(db); // before the poller exists, so it seeds pendingConfirm from the db
 
   const openingQueue: OpeningStep[] = [];
-  const historicalQueue: (ClosedPosition[] | Error)[] = [];
+  const historicalQueue: HistoricalStep[] = [];
   const openingCalls: string[] = [];
   const historicalCalls: { owner: string; from: Date }[] = [];
 
@@ -50,14 +51,16 @@ function setup(
       historicalCalls.push({ owner, from });
       const step = historicalQueue.length > 1 ? historicalQueue.shift()! : historicalQueue[0];
       if (step === undefined) throw new Error('no historical response queued');
-      if (step instanceof Error) throw step;
-      return step;
+      const res = typeof step === 'function' ? step(owner) : step;
+      if (res instanceof Error) throw res;
+      return res;
     },
   };
 
   const sent: string[] = [];
-  const state = { failNext: false };
+  const state = { failNext: false, failWhen: null as ((html: string) => boolean) | null };
   const notify = async (html: string) => {
+    if (state.failWhen?.(html)) throw new Error('telegram rejects message');
     if (state.failNext) {
       state.failNext = false;
       throw new Error('telegram down');
@@ -323,11 +326,14 @@ describe('poller', () => {
     });
     s.historicalQueue.push([closedOf(p1)]);
     expect(s.poller.status().pendingConfirms).toBe(1); // seeded from the db
+    s.openingQueue.push([]);
     s.state.failNext = true;
-    await s.poller.tick();
+    await s.poller.tick(); // confirm: send fails
     expect(s.db.getPositions(A)).toHaveLength(1);
     expect(s.poller.status().pendingConfirms).toBe(1);
-    await s.poller.tick();
+    await s.poller.tick(); // confirms alternate with opening polls
+    expect(s.openingCalls).toHaveLength(1);
+    await s.poller.tick(); // confirm retried
     expect(s.sent[0]).toContain('CLOSED');
     expect(s.db.getPositions(A)).toHaveLength(0);
     expect(s.poller.status().pendingConfirms).toBe(0);
@@ -348,6 +354,109 @@ describe('poller', () => {
     expect(s.poller.status().pendingConfirms).toBe(1);
     expect(s.poller.status().lastError?.message).toBe('down');
     expect(s.db.getPositions(A)[0].missCount).toBe(1);
+  });
+
+  it('a send failure does not pin the poller to one wallet', async () => {
+    const s = setup({
+      wallets: [A, B],
+      seed: (db) => {
+        db.applyPollResult(A, { upserts: [], deletes: [], markBaselined: true });
+        db.applyPollResult(B, { upserts: [], deletes: [], markBaselined: true });
+      },
+    });
+    s.openingQueue.push((owner) => (owner === A ? [makePosition({ tokenId: '1' })] : []));
+    s.state.failNext = true;
+
+    await s.poller.tick(); // A: OPENED send fails
+    expect(s.db.getPositions(A)).toHaveLength(0);
+    const err = s.poller.status().lastSendError;
+    expect(err?.message).toBe('telegram down');
+    expect(err?.at).toEqual(T0);
+
+    await s.poller.tick(); // B gets its turn
+    await s.poller.tick(); // A retried
+    expect(s.openingCalls).toEqual([A, B, A]);
+    expect(s.sent).toHaveLength(1);
+    expect(s.sent[0]).toContain('OPENED');
+    expect(s.db.getPositions(A)).toHaveLength(1);
+    expect(s.poller.status().lastSendError).not.toBeNull(); // never cleared automatically
+    expect(s.poller.status().lastError).toBeNull();
+  });
+
+  it('a permanently failing send for one wallet does not block the others', async () => {
+    const s = setup({
+      wallets: [A, B],
+      seed: (db) => {
+        db.applyPollResult(A, { upserts: [], deletes: [], markBaselined: true });
+        db.applyPollResult(B, { upserts: [], deletes: [], markBaselined: true });
+      },
+    });
+    s.state.failWhen = (html) => html.includes('OPENED');
+    s.openingQueue.push(() => [makePosition({ tokenId: '1' })]);
+    for (let i = 0; i < 4; i++) await s.poller.tick();
+    expect(s.openingCalls).toEqual([A, B, A, B]);
+  });
+
+  it('a wallet whose historical keeps failing does not starve opening polls', async () => {
+    const p1 = makePosition({ tokenId: '1' });
+    const s = setup({
+      wallets: [A, B],
+      seed: (db) => {
+        db.applyPollResult(A, {
+          upserts: [makeRow(p1, { missCount: 1, lastSeenAt: SEEN })],
+          deletes: [],
+          markBaselined: true,
+        });
+        db.applyPollResult(B, { upserts: [], deletes: [], markBaselined: true });
+      },
+    });
+    s.historicalQueue.push(new LpAgentError('server', 'historical down'));
+    s.openingQueue.push([]);
+
+    const seq: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const o = s.openingCalls.length;
+      const h = s.historicalCalls.length;
+      await s.poller.tick();
+      seq.push(s.historicalCalls.length > h ? 'confirm' : s.openingCalls.length > o ? 'opening' : 'none');
+      s.clock.t += 301_000; // past any backoff
+    }
+    expect(seq).toEqual(['confirm', 'opening', 'confirm', 'opening', 'confirm', 'opening']);
+    expect(s.openingCalls).toContain(B);
+  });
+
+  it('a failing confirm moves to the back so the next confirm tick processes the other wallet', async () => {
+    const pA = makePosition({ tokenId: '1' });
+    const pB = makePosition({ tokenId: '2' });
+    const s = setup({
+      wallets: [A, B],
+      seed: (db) => {
+        db.applyPollResult(A, {
+          upserts: [makeRow(pA, { missCount: 1, lastSeenAt: SEEN })],
+          deletes: [],
+          markBaselined: true,
+        });
+        db.applyPollResult(B, {
+          upserts: [makeRow(pB, { missCount: 1, lastSeenAt: SEEN })],
+          deletes: [],
+          markBaselined: true,
+        });
+      },
+    });
+    s.historicalQueue.push((owner) =>
+      owner === A ? new LpAgentError('server', 'A historical down') : [closedOf(pB)],
+    );
+    s.openingQueue.push([]);
+
+    await s.poller.tick(); // confirm A: fails, moves behind B
+    s.clock.t += 301_000;
+    await s.poller.tick(); // opening
+    s.clock.t += 301_000;
+    await s.poller.tick(); // confirm: B, not A again
+    expect(s.historicalCalls.map((c) => c.owner)).toEqual([A, B]);
+    expect(s.sent.filter((m) => m.includes('CLOSED'))).toHaveLength(1);
+    expect(s.db.getPositions(B)).toHaveLength(0);
+    expect(s.poller.status().pendingConfirms).toBe(1); // A still pending
   });
 
   it('skips commit when wallet removed mid-request', async () => {
