@@ -183,7 +183,7 @@ export function formatEvent(e: AlertEvent): string {
         `${pair} · ${proto}`,
         `Held: ${held}`,
         `PnL: ${pnl}`,
-        `Fees earned: ${usd(c?.collectedFee ?? p.collectedFee)}`,
+        `Fees earned: ${usd(c && c.collectedFee > 0 ? c.collectedFee : p.collectedFee)}`,
         positionLine(p, e.wallet),
       ].join('\n');
     }

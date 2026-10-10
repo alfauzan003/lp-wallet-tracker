@@ -248,6 +248,25 @@ describe('formatEvent', () => {
     expect(out).toContain('Fees earned: $99.00');
   });
 
+  it('closed with zero historical fees falls back to the position fees', () => {
+    const out = formatEvent({
+      type: 'closed',
+      wallet,
+      position,
+      closed: {
+        tokenId: '1',
+        protocol: 'uniswap_v3',
+        createdAt: '2026-10-01T00:00:00.000Z',
+        closeAt: closedAt,
+        pnlValue: 1,
+        pnlPercent: 1,
+        collectedFee: 0,
+      },
+      closedAt,
+    });
+    expect(out).toContain('Fees earned: $99.00');
+  });
+
   it('closed with clock skew clamps held to 0m', () => {
     const out = formatEvent({
       type: 'closed',
