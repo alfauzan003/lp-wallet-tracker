@@ -15,7 +15,7 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.9"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

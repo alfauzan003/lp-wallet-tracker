@@ -43,6 +43,8 @@ Environment variables (see `.env.example`):
 
 ## Run locally
 
+Requires Node.js 22.9 or newer (the npm scripts use `--env-file-if-exists`).
+
 ```sh
 cp .env.example .env      # then fill in the three required values
 npm ci
@@ -56,7 +58,7 @@ npm run dev
 ## Deploy to a VPS (Ubuntu/Debian)
 
 ```sh
-# Prerequisites and Node 22 via NodeSource
+# Prerequisites and Node 22 (22.9 or newer) via NodeSource
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl git
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
