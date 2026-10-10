@@ -66,21 +66,22 @@ const tokenInfoRaw = z
   })
   .nullish();
 
+/**
+ * Only the address is required (the raw schema enforces it). A missing symbol
+ * becomes '?' and missing decimals become NaN, a sentinel that makes the range
+ * render as "n/a", so one odd token cannot stop a wallet from being tracked.
+ */
 function mapToken(
   address: string,
   info: z.infer<typeof tokenInfoRaw>,
   name: string | null | undefined,
   decimals: number | null | undefined,
-  side: string,
-  ctx: z.RefinementCtx,
 ): TokenInfo {
-  const symbol = info?.token_symbol ?? name;
-  const dec = info?.token_decimals ?? decimals;
-  if (!symbol || dec === null || dec === undefined) {
-    ctx.addIssue({ code: 'custom', message: `${side}: missing symbol or decimals` });
-    return z.NEVER;
-  }
-  return { address: address.toLowerCase(), symbol, decimals: dec };
+  return {
+    address: address.toLowerCase(),
+    symbol: info?.token_symbol || name || '?',
+    decimals: info?.token_decimals ?? decimals ?? NaN,
+  };
 }
 
 const pnlRaw = z
@@ -113,14 +114,14 @@ const openPositionRaw = z.object({
   inRange: z.boolean().nullish(),
 });
 
-const openPositionSchema = openPositionRaw.transform((r, ctx): OpenPosition => ({
+const openPositionSchema = openPositionRaw.transform((r): OpenPosition => ({
   tokenId: r.tokenId,
   protocol: r.protocol,
   pairName: r.pairName ?? '',
   pool: r.pool ?? '',
   feeTier: r.poolInfo?.fee ?? 0,
-  token0: mapToken(r.token0, r.token0Info, r.tokenName0, r.decimal0, 'token0', ctx),
-  token1: mapToken(r.token1, r.token1Info, r.tokenName1, r.decimal1, 'token1', ctx),
+  token0: mapToken(r.token0, r.token0Info, r.tokenName0, r.decimal0),
+  token1: mapToken(r.token1, r.token1Info, r.tokenName1, r.decimal1),
   inputValue: r.inputValue,
   inputNative: r.inputNative,
   collectedFee: r.collectedFee,

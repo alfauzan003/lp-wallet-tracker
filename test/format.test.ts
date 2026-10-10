@@ -159,6 +159,16 @@ describe('formatEvent', () => {
     expect(out).toContain('Range: n/a · out of range ⚠️');
   });
 
+  it('opened with unknown token decimals renders Range: n/a', () => {
+    const out = formatEvent({
+      type: 'opened',
+      wallet,
+      position: { ...opened, token0: { ...TSLA, symbol: '?', decimals: NaN } },
+    });
+    expect(out).toContain('Range: n/a · in range ✅');
+    expect(out).toContain('CA ?: <code>');
+  });
+
   it('fee_collected', () => {
     const out = formatEvent({
       type: 'fee_collected',

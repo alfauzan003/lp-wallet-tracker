@@ -101,6 +101,33 @@ describe('lp agent client', () => {
     await expect(client.getHistorical(OWNER, new Date())).resolves.toEqual([]);
   });
 
+  it('opening token without symbol or decimals parses with "?" and NaN', async () => {
+    const { token0Info: _i, tokenName0: _n, decimal0: _d, ...item } = opening.data[0];
+    const { client } = stub({ status: 'success', data: [item] });
+    const res = await client.getOpening(OWNER);
+    expect(res).toHaveLength(1);
+    expect(res[0]!.token0.symbol).toBe('?');
+    expect(res[0]!.token0.decimals).toBeNaN();
+    expect(res[0]!.token0.address).toBe('0x4200000000000000000000000000000000000006');
+    expect(res[0]!.token1.symbol).toBe('USDG');
+  });
+
+  it('opening token symbol falls back to tokenName, decimals to decimalN', async () => {
+    const item = { ...opening.data[0], token0Info: { token_symbol: '', token_decimals: null } };
+    const { client } = stub({ status: 'success', data: [item] });
+    const res = await client.getOpening(OWNER);
+    expect(res[0]!.token0.symbol).toBe('WETH');
+    expect(res[0]!.token0.decimals).toBe(18);
+  });
+
+  it('opening token without an address still fails the response', async () => {
+    const { token0: _t, ...item } = opening.data[0];
+    const { client } = stub({ status: 'success', data: [item] });
+    const err = await client.getOpening(OWNER).catch((e) => e);
+    expect(err).toBeInstanceOf(LpAgentError);
+    expect(err.kind).toBe('invalid_response');
+  });
+
   it('opening stays strict: one bad item fails the response', async () => {
     const body = { status: 'success', data: [{ ...opening.data[0], tokenId: undefined }] };
     const { client } = stub(body);
