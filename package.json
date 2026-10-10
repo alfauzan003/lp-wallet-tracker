@@ -9,8 +9,8 @@
     "test": "vitest run",
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "node --env-file=.env --import tsx src/index.ts",
-    "probe": "node --env-file=.env --import tsx scripts/probe.ts",
+    "dev": "node --env-file-if-exists=.env --import tsx src/index.ts",
+    "probe": "node --env-file-if-exists=.env --import tsx scripts/probe.ts",
     "typecheck": "tsc --noEmit"
   },
   "type": "module",

@@ -1,0 +1,15 @@
+[Unit]
+Description=LP wallet tracker Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lptracker
+WorkingDirectory=/opt/lp-tracker
+EnvironmentFile=/opt/lp-tracker/.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
