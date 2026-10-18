@@ -153,7 +153,7 @@ Each close commits on its own, so one stuck edit can't hold back the rest.
 |---|---|
 | CLOSED send fails | Poll not committed. The position is still in `positions`, so it's detected again next turn. |
 | Crash between send and commit | Same as above, so a duplicate CLOSED is possible: the same at-least-once delivery as today. |
-| Edit fails transiently | That close stays due and is retried at the next check, still within the 1h schedule. |
+| Edit fails during a close check | That close keeps its attempts and is retried every 5 min. If it's still failing 2 h after detection, the close is dropped and an error is logged. |
 | Owner deleted the message | `'gone'` → close dropped silently. |
 | `/historical` down | Nothing expires. API-down alert as today. Closes resume when it recovers. |
 | Position reappears after the close is finalized | Treated as a new OPENED. |
