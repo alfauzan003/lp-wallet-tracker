@@ -1,5 +1,5 @@
 import type { AlertEvent, WalletRef } from './detector.js';
-import type { OpenPosition, TokenInfo } from './lpagent/types.js';
+import type { ClosedPosition, OpenPosition, TokenInfo } from './lpagent/types.js';
 
 const usdFmt = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -144,6 +144,11 @@ function rangeLine(p: OpenPosition): string {
 }
 
 export function formatEvent(e: AlertEvent): string {
+  if (e.type === 'closed') {
+    return formatClosed(e.wallet, e.row.data, { kind: 'pending', detectedAt: e.detectedAt });
+  }
+  if (e.type === 'false_alarm') return formatClosed(e.wallet, e.position, { kind: 'false_alarm' });
+
   const p = e.position;
   const name = walletName(e.wallet);
   const pair = escapeHtml(p.pairName);
@@ -169,25 +174,54 @@ export function formatEvent(e: AlertEvent): string {
         positionLine(p, e.wallet),
         ...caLines(p),
       ].join('\n');
-
-    case 'closed': {
-      const start = Date.parse(e.closed?.createdAt ?? p.createdAt);
-      const held = formatDuration(Date.parse(e.closedAt) - start);
-      const c = e.closed;
-      const pnl =
-        c && c.pnlValue !== null && c.pnlPercent !== null
-          ? `${signedUsd(c.pnlValue)} (${signedPct(c.pnlPercent, 1)})`
-          : 'unavailable';
-      return [
-        `<b>🔴 CLOSED · ${name}</b>`,
-        `${pair} · ${proto}`,
-        `Held: ${held}`,
-        `PnL: ${pnl}`,
-        `Fees earned: ${usd(c && c.collectedFee > 0 ? c.collectedFee : p.collectedFee)}`,
-        positionLine(p, e.wallet),
-      ].join('\n');
-    }
   }
+}
+
+export type CloseState =
+  | { kind: 'pending'; detectedAt: string }
+  | { kind: 'final'; closed: ClosedPosition }
+  | { kind: 'unavailable'; detectedAt: string }
+  | { kind: 'false_alarm' };
+
+/** Every state of a close alert: the first send and each later edit of that message. */
+export function formatClosed(wallet: WalletRef, p: OpenPosition, state: CloseState): string {
+  const name = walletName(wallet);
+  const pairLine = `${escapeHtml(p.pairName)} · ${protocolName(p.protocol)}`;
+
+  if (state.kind === 'false_alarm') {
+    return [
+      `<b>⚪ FALSE ALARM · ${name}</b>`,
+      pairLine,
+      'Position is still open.',
+      positionLine(p, wallet),
+    ].join('\n');
+  }
+
+  let held: number;
+  let pnl: string;
+  let fees: number;
+  if (state.kind === 'final') {
+    const c = state.closed;
+    held = Date.parse(c.closeAt) - Date.parse(c.createdAt);
+    pnl =
+      c.pnlValue !== null && c.pnlPercent !== null
+        ? `${signedUsd(c.pnlValue)} (${signedPct(c.pnlPercent, 1)})`
+        : 'unavailable';
+    fees = c.collectedFee > 0 ? c.collectedFee : p.collectedFee;
+  } else {
+    held = Date.parse(state.detectedAt) - Date.parse(p.createdAt);
+    pnl = state.kind === 'pending' ? 'pending…' : 'unavailable';
+    fees = p.collectedFee;
+  }
+
+  return [
+    `<b>🔴 CLOSED · ${name}</b>`,
+    pairLine,
+    `Held: ${formatDuration(held)}`,
+    `PnL: ${pnl}`,
+    `Fees earned: ${usd(fees)}`,
+    positionLine(p, wallet),
+  ].join('\n');
 }
 
 export function formatBaselined(w: WalletRef, count: number): string {

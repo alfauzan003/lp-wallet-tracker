@@ -4,6 +4,7 @@ import {
   formatApiDown,
   formatApiRecovered,
   formatBaselined,
+  formatClosed,
   formatDuration,
   formatEvent,
   pickCaTokens,
@@ -14,8 +15,8 @@ import {
   walletName,
 } from '../src/format.js';
 import type { WalletRef } from '../src/detector.js';
-import type { TokenInfo } from '../src/lpagent/types.js';
-import { makePosition } from './fixtures/make.js';
+import type { ClosedPosition, TokenInfo } from '../src/lpagent/types.js';
+import { makeClose, makePosition, makeRow } from './fixtures/make.js';
 
 const ADDR = '0x12ab34' + '0'.repeat(30) + '9f3c';
 const wallet: WalletRef = { address: ADDR, label: 'whale' };
@@ -191,23 +192,19 @@ describe('formatEvent', () => {
 
   const position = makePosition({ collectedFee: 99 });
   const closedAt = '2026-10-04T04:00:00.000Z';
+  const closed = (overrides: Partial<ClosedPosition> = {}): ClosedPosition => ({
+    tokenId: '1',
+    protocol: 'uniswap_v3',
+    createdAt: '2026-10-01T00:00:00.000Z',
+    closeAt: closedAt,
+    pnlValue: 184.3,
+    pnlPercent: 7.5,
+    collectedFee: 151.1,
+    ...overrides,
+  });
 
-  it('closed with pnl', () => {
-    const out = formatEvent({
-      type: 'closed',
-      wallet,
-      position,
-      closed: {
-        tokenId: '1',
-        protocol: 'uniswap_v3',
-        createdAt: '2026-10-01T00:00:00.000Z',
-        closeAt: closedAt,
-        pnlValue: 184.3,
-        pnlPercent: 7.5,
-        collectedFee: 151.1,
-      },
-      closedAt,
-    });
+  it('closed final with pnl', () => {
+    const out = formatClosed(wallet, position, { kind: 'final', closed: closed() });
     expect(out).toMatchInlineSnapshot(`
       "<b>🔴 CLOSED · whale</b>
       WETH/USDG · Uniswap V3
@@ -216,66 +213,78 @@ describe('formatEvent', () => {
       Fees earned: $151.10
       Position #1 · Wallet <a href="https://app.lpagent.io/portfolio?address=0x12ab340000000000000000000000000000009f3c&amp;chain=ROBINHOOD">0x12ab…9f3c</a>"
     `);
-    expect(out).toContain('Held: 3d 4h');
-    expect(out).toContain('PnL: +$184.30 (+7.5%)');
-    expect(out).toContain('Fees earned: $151.10');
     expect(out).not.toContain('CA ');
   });
 
-  it('closed with negative pnl', () => {
-    const out = formatEvent({
-      type: 'closed',
-      wallet,
-      position,
-      closed: {
-        tokenId: '1',
-        protocol: 'uniswap_v3',
-        createdAt: '2026-10-01T00:00:00.000Z',
-        closeAt: closedAt,
-        pnlValue: -184.3,
-        pnlPercent: -3.2,
-        collectedFee: 1,
-      },
-      closedAt,
+  it('closed final with negative pnl', () => {
+    const out = formatClosed(wallet, position, {
+      kind: 'final',
+      closed: closed({ pnlValue: -184.3, pnlPercent: -3.2, collectedFee: 1 }),
     });
     expect(out).toContain('PnL: -$184.30 (-3.2%)');
   });
 
-  it('closed forced', () => {
-    const out = formatEvent({ type: 'closed', wallet, position, closed: null, closedAt });
+  it('closed final without pnl values renders unavailable', () => {
+    const out = formatClosed(wallet, position, { kind: 'final', closed: closed({ pnlValue: null }) });
+    expect(out).toContain('PnL: unavailable');
+  });
+
+  it('closed final with zero historical fees falls back to the position fees', () => {
+    const out = formatClosed(wallet, position, { kind: 'final', closed: closed({ collectedFee: 0 }) });
+    expect(out).toContain('Fees earned: $99.00');
+  });
+
+  it('closed pending', () => {
+    const out = formatClosed(wallet, position, { kind: 'pending', detectedAt: closedAt });
+    expect(out).toMatchInlineSnapshot(`
+      "<b>🔴 CLOSED · whale</b>
+      WETH/USDG · Uniswap V3
+      Held: 3d 4h
+      PnL: pending…
+      Fees earned: $99.00
+      Position #1 · Wallet <a href="https://app.lpagent.io/portfolio?address=0x12ab340000000000000000000000000000009f3c&amp;chain=ROBINHOOD">0x12ab…9f3c</a>"
+    `);
+  });
+
+  it('closed unavailable', () => {
+    const out = formatClosed(wallet, position, { kind: 'unavailable', detectedAt: closedAt });
     expect(out).toContain('PnL: unavailable');
     expect(out).toContain('Held: 3d 4h');
     expect(out).toContain('Fees earned: $99.00');
   });
 
-  it('closed with zero historical fees falls back to the position fees', () => {
-    const out = formatEvent({
-      type: 'closed',
-      wallet,
-      position,
-      closed: {
-        tokenId: '1',
-        protocol: 'uniswap_v3',
-        createdAt: '2026-10-01T00:00:00.000Z',
-        closeAt: closedAt,
-        pnlValue: 1,
-        pnlPercent: 1,
-        collectedFee: 0,
-      },
-      closedAt,
-    });
-    expect(out).toContain('Fees earned: $99.00');
+  it('closed with clock skew clamps held to 0m', () => {
+    const out = formatClosed(wallet, position, { kind: 'unavailable', detectedAt: '2026-09-01T00:00:00.000Z' });
+    expect(out).toContain('Held: 0m');
   });
 
-  it('closed with clock skew clamps held to 0m', () => {
-    const out = formatEvent({
-      type: 'closed',
-      wallet,
-      position,
-      closed: null,
-      closedAt: '2026-09-01T00:00:00.000Z',
+  it('false alarm', () => {
+    const out = formatClosed(wallet, position, { kind: 'false_alarm' });
+    expect(out).toMatchInlineSnapshot(`
+      "<b>⚪ FALSE ALARM · whale</b>
+      WETH/USDG · Uniswap V3
+      Position is still open.
+      Position #1 · Wallet <a href="https://app.lpagent.io/portfolio?address=0x12ab340000000000000000000000000000009f3c&amp;chain=ROBINHOOD">0x12ab…9f3c</a>"
+    `);
+  });
+
+  it('false alarm escapes the label and pair', () => {
+    const out = formatClosed({ address: ADDR, label: 'a<b' }, makePosition({ pairName: 'X<Y' }), {
+      kind: 'false_alarm',
     });
-    expect(out).toContain('Held: 0m');
+    expect(out).toContain('a&lt;b');
+    expect(out).toContain('X&lt;Y');
+  });
+
+  it('formatEvent closed renders the pending state', () => {
+    const out = formatEvent({ type: 'closed', wallet, row: makeRow(position), detectedAt: closedAt });
+    expect(out).toContain('🔴 CLOSED');
+    expect(out).toContain('PnL: pending…');
+  });
+
+  it('formatEvent false_alarm renders the false alarm', () => {
+    const close = makeClose(makeRow(position));
+    expect(formatEvent({ type: 'false_alarm', wallet, position, close })).toContain('FALSE ALARM');
   });
 
   it('escapes html in label and symbol', () => {
