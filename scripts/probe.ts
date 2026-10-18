@@ -3,7 +3,7 @@ import { loadConfig } from '../src/config.js';
 import { formatEvent, rangePercent } from '../src/format.js';
 import { createLpAgentClient } from '../src/lpagent/client.js';
 import { openingResponseSchema } from '../src/lpagent/types.js';
-import { createTelegramNotify } from '../src/notify.js';
+import { createTelegramNotifier } from '../src/notify.js';
 import { Api } from 'grammy';
 
 const BASE_URL = 'https://api.lpagent.io/open-api/v1';
@@ -46,8 +46,8 @@ async function main(): Promise<void> {
   console.log(`${parsed.length} open position(s)`);
 
   const wallet = { address, label: null };
-  const notify = send
-    ? createTelegramNotify(new Api(config.telegramBotToken), config.telegramOwnerId)
+  const notifier = send
+    ? createTelegramNotifier(new Api(config.telegramBotToken), config.telegramOwnerId)
     : null;
 
   for (const [i, p] of parsed.entries()) {
@@ -63,8 +63,8 @@ async function main(): Promise<void> {
     console.log(`rangePercent: ${JSON.stringify(rangePercent(p))}`);
     const html = formatEvent({ type: 'opened', wallet, position: p });
     console.log(html);
-    if (notify) {
-      await notify(html);
+    if (notifier) {
+      await notifier.send(html);
       console.log('sent to owner');
     }
   }

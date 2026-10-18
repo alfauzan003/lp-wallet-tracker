@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTelegramNotify, sendWithRetry } from '../src/notify.js';
+import { createTelegramNotifier, sendWithRetry } from '../src/notify.js';
 
 describe('sendWithRetry', () => {
   it('retries then succeeds', async () => {
@@ -34,16 +34,60 @@ describe('sendWithRetry', () => {
     // no pointless sleep after the final failure
     expect(sleep).toHaveBeenCalledTimes(2);
   });
+
+  it('returns the value of the successful attempt', async () => {
+    const send = vi.fn<() => Promise<number>>().mockRejectedValueOnce(new Error('x')).mockResolvedValueOnce(5);
+    await expect(sendWithRetry(send, { sleep: async () => {} })).resolves.toBe(5);
+  });
 });
 
-describe('createTelegramNotify', () => {
-  it('sends HTML with link previews disabled', async () => {
-    const sendMessage = vi.fn(async () => ({}));
-    const notify = createTelegramNotify({ sendMessage } as never, 42);
-    await notify('<b>hi</b>');
-    expect(sendMessage).toHaveBeenCalledWith(42, '<b>hi</b>', {
-      parse_mode: 'HTML',
-      link_preview_options: { is_disabled: true },
+describe('createTelegramNotifier', () => {
+  const opts = { parse_mode: 'HTML', link_preview_options: { is_disabled: true } };
+  const sleep = async (_ms: number) => {};
+
+  it('send posts HTML with previews disabled and returns message_id', async () => {
+    const sendMessage = vi.fn(async () => ({ message_id: 314 }));
+    const n = createTelegramNotifier({ sendMessage } as never, 42, { sleep });
+    await expect(n.send('<b>hi</b>')).resolves.toBe(314);
+    expect(sendMessage).toHaveBeenCalledWith(42, '<b>hi</b>', opts);
+  });
+
+  it('edit calls editMessageText with the same options', async () => {
+    const editMessageText = vi.fn(async () => ({}));
+    const n = createTelegramNotifier({ editMessageText } as never, 42, { sleep });
+    await expect(n.edit(7, '<b>x</b>')).resolves.toBe('ok');
+    expect(editMessageText).toHaveBeenCalledWith(42, 7, '<b>x</b>', opts);
+  });
+
+  it('edit treats "message is not modified" as ok without retrying', async () => {
+    const err = Object.assign(new Error('400'), {
+      description:
+        'Bad Request: message is not modified: specified new message content and reply markup are exactly the same',
     });
+    const editMessageText = vi.fn(async () => {
+      throw err;
+    });
+    const n = createTelegramNotifier({ editMessageText } as never, 42, { sleep });
+    await expect(n.edit(7, 'x')).resolves.toBe('ok');
+    expect(editMessageText).toHaveBeenCalledTimes(1);
+  });
+
+  it('edit returns gone for "message to edit not found" without retrying', async () => {
+    const err = Object.assign(new Error('400'), { description: 'Bad Request: message to edit not found' });
+    const editMessageText = vi.fn(async () => {
+      throw err;
+    });
+    const n = createTelegramNotifier({ editMessageText } as never, 42, { sleep });
+    await expect(n.edit(7, 'x')).resolves.toBe('gone');
+    expect(editMessageText).toHaveBeenCalledTimes(1);
+  });
+
+  it('edit rethrows other errors after 3 attempts', async () => {
+    const editMessageText = vi.fn(async () => {
+      throw new Error('down');
+    });
+    const n = createTelegramNotifier({ editMessageText } as never, 42, { sleep });
+    await expect(n.edit(7, 'x')).rejects.toThrow('down');
+    expect(editMessageText).toHaveBeenCalledTimes(3);
   });
 });
