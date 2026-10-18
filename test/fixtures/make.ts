@@ -1,6 +1,6 @@
 import type { OpenPosition } from '../../src/lpagent/types.js';
 import { positionKey } from '../../src/lpagent/types.js';
-import type { PositionRow } from '../../src/detector.js';
+import type { PendingClose, PositionRow } from '../../src/detector.js';
 
 export function makePosition(overrides: Partial<OpenPosition> = {}): OpenPosition {
   return {
@@ -39,8 +39,19 @@ export function makeRow(p: OpenPosition, overrides: Partial<PositionRow> = {}): 
     data: p,
     feeBaselineUsd: p.collectedFee,
     feeBaselineNative: p.collectedFeeNative,
-    missCount: 0,
     lastSeenAt: '2026-10-09T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function makeClose(row: PositionRow, overrides: Partial<PendingClose> = {}): PendingClose {
+  return {
+    key: row.key,
+    row,
+    messageId: 100,
+    detectedAt: '2026-10-10T00:00:00.000Z',
+    attempts: 0,
+    nextCheckAt: '2026-10-10T00:00:30.000Z',
     ...overrides,
   };
 }
