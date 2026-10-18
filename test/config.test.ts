@@ -15,7 +15,6 @@ describe("loadConfig", () => {
     expect(c.telegramOwnerId).toBe(12345);
     expect(c.rpmLimit).toBe(5);
     expect(c.feeAlertMinUsd).toBe(1);
-    expect(c.closeMissLimit).toBe(3);
     expect(c.dbPath).toBe("./data/tracker.db");
   });
 
@@ -30,12 +29,10 @@ describe("loadConfig", () => {
       ...required,
       RPM_LIMIT: "",
       FEE_ALERT_MIN_USD: "  ",
-      CLOSE_MISS_LIMIT: "",
       DB_PATH: " ",
     });
     expect(c.rpmLimit).toBe(5);
     expect(c.feeAlertMinUsd).toBe(1);
-    expect(c.closeMissLimit).toBe(3);
     expect(c.dbPath).toBe("./data/tracker.db");
   });
 
@@ -47,6 +44,11 @@ describe("loadConfig", () => {
     expect(() => loadConfig({})).toThrow(/TELEGRAM_BOT_TOKEN/);
     expect(() => loadConfig({})).toThrow(/TELEGRAM_OWNER_ID/);
     expect(() => loadConfig({})).toThrow(/LPAGENT_API_KEY/);
+  });
+
+  it("ignores a leftover CLOSE_MISS_LIMIT", () => {
+    const c = loadConfig({ ...required, CLOSE_MISS_LIMIT: "3" });
+    expect("closeMissLimit" in c).toBe(false);
   });
 
   it("rejects non-numeric owner id", () => {

@@ -6,7 +6,6 @@ export interface Config {
   lpagentApiKey: string;
   rpmLimit: number;
   feeAlertMinUsd: number;
-  closeMissLimit: number;
   dbPath: string;
 }
 
@@ -20,7 +19,6 @@ const envSchema = z.object({
   LPAGENT_API_KEY: z.string().min(1),
   RPM_LIMIT: optional(z.coerce.number().int().positive().default(5)),
   FEE_ALERT_MIN_USD: optional(z.coerce.number().nonnegative().default(1)),
-  CLOSE_MISS_LIMIT: optional(z.coerce.number().int().positive().default(3)),
   DB_PATH: optional(z.string().min(1).default("./data/tracker.db")),
 });
 
@@ -37,7 +35,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     lpagentApiKey: e.LPAGENT_API_KEY,
     rpmLimit: e.RPM_LIMIT,
     feeAlertMinUsd: e.FEE_ALERT_MIN_USD,
-    closeMissLimit: e.CLOSE_MISS_LIMIT,
     dbPath: e.DB_PATH,
   };
 }

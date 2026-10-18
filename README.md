@@ -8,7 +8,7 @@ Alerts, sent only to the owner's private chat:
 
 - **OPENED**: a tracked wallet opened a new LP position.
 - **FEES COLLECTED**: a position accumulated at least `FEE_ALERT_MIN_USD` (default $1) of newly collected fees.
-- **CLOSED**: a position was closed (confirmed against LP Agent's history, with PnL and fees earned).
+- **CLOSED**: a position was closed. The alert is sent as soon as the position disappears from its wallet, with `PnL: pending…`, then edited in place once LP Agent's history has the PnL and fees earned. If they never show up within an hour, it is edited to `PnL: unavailable`. If the position turns out to still be open, it is edited to a false-alarm notice.
 
 Commands (the bot ignores everyone except the owner):
 
@@ -32,7 +32,6 @@ Environment variables (see `.env.example`):
 | `LPAGENT_API_KEY` | yes | | LP Agent API key |
 | `RPM_LIMIT` | no | `5` | Max LP Agent requests per minute |
 | `FEE_ALERT_MIN_USD` | no | `1` | Minimum accumulated fees (USD) before a fee alert |
-| `CLOSE_MISS_LIMIT` | no | `3` | Consecutive polls a position must be missing before a close is confirmed |
 | `DB_PATH` | no | `./data/tracker.db` | SQLite database file |
 
 ## Getting the credentials
