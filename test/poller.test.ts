@@ -268,8 +268,17 @@ describe('poller', () => {
     s.historicalQueue.push(new LpAgentError('network', 'down'));
     await s.poller.tick();
     expect(s.edits).toEqual([]);
-    expect(s.db.getCloses(A)).toMatchObject([{ attempts: 7, nextCheckAt: at(3_600_000) }]);
+    // attempts unchanged; the next check waits out the 24s backoff
+    expect(s.db.getCloses(A)).toMatchObject([{ attempts: 7, nextCheckAt: at(61 * 60_000 + 24_000) }]);
     expect(s.poller.status().lastError?.message).toBe('down');
+
+    s.clock.t += 24_000;
+    s.historicalQueue.length = 0;
+    s.historicalQueue.push([]);
+    s.openingQueue.push([]);
+    await s.poller.tick(); // opening poll: close checks never take two ticks in a row
+    await s.poller.tick(); // first successful check past the deadline expires it
+    expect(s.edits).toEqual([{ id: 100, html: expect.stringContaining('PnL: unavailable') }]);
   });
 
   it('deleted message drops the close', async () => {
@@ -403,6 +412,28 @@ describe('poller', () => {
     await s.poller.tick(); // check: B, not A again
     expect(s.historicalCalls.map((c) => c.owner)).toEqual([A, B]);
     expect(s.db.getCloses(B)).toMatchObject([{ attempts: 1 }]);
+  });
+
+  it("two wallets whose historical keeps failing do not block a third wallet's close checks", async () => {
+    const C = '0x' + 'c'.repeat(40);
+    const s = setup({
+      wallets: [A, B, C],
+      seed: (db) => {
+        seedClose(db, A, makeRow(makePosition({ tokenId: '1' })), { nextCheckAt: at(30_000) });
+        seedClose(db, B, makeRow(makePosition({ tokenId: '2' })), { nextCheckAt: at(35_000) });
+        seedClose(db, C, makeRow(makePosition({ tokenId: '3' })), { nextCheckAt: at(40_000) });
+      },
+    });
+    s.clock.t = T0.getTime() + 60_000;
+    s.historicalQueue.push((owner) => (owner === C ? [] : new LpAgentError('server', 'historical down')));
+    s.openingQueue.push([]);
+
+    for (let i = 0; i < 12; i++) {
+      await s.poller.tick();
+      s.clock.t += 301_000; // past any backoff
+    }
+    expect(s.historicalCalls.map((c) => c.owner)).toContain(C);
+    expect(s.db.getCloses(C)[0]!.attempts).toBeGreaterThan(0);
   });
 
   it('a wallet whose historical keeps failing does not starve opening polls', async () => {

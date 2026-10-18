@@ -118,7 +118,7 @@ The false-alarm body is the pair/protocol line, `Position is still open.`, and t
 
 Close checks for a pending close run at these offsets from `detected_at`: **30s, 1m, 2m, 4m, 8m, 15m, 30m, 60m**. `next_check_at = detected_at + offsets[attempts]`, and `attempts` goes up after each *successful* historical response that doesn't contain the position. The 60m check is the last: if it doesn't find the position, the close is `expired`.
 
-If a `/historical` request fails, nothing advances. The close stays due, and the poller's existing API backoff limits retries. A close only expires after a successful response, so an API outage never turns into `unavailable` messages; those closes stay pending until LP Agent answers.
+If a `/historical` request fails, `attempts` doesn't advance. The wallet's due closes move to `now + current API backoff`, so other wallets' due closes get checked first and failing wallets take turns. A close only expires after a successful response, so an API outage never turns into `unavailable` messages; those closes stay pending until LP Agent answers.
 
 ### 5.5 Poller (`poller.ts`)
 

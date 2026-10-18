@@ -53,8 +53,6 @@ export function createPoller(deps: {
   const startedAt = now();
 
   let lastPolled: string | null = null;
-  /** The wallet whose last close check failed; the next check prefers another due wallet. */
-  let lastFailedCheck: string | null = null;
 
   let nextAllowedAt = 0;
   let backoffMs = 0;
@@ -190,9 +188,14 @@ export function createPoller(deps: {
     try {
       historical = await client.getHistorical(address, from);
     } catch (err) {
-      // Nothing advances: a close only expires after a successful response.
       await onApiError(err);
-      lastFailedCheck = address;
+      // Attempts stay put (a close only expires after a successful response), but the
+      // checks move behind the backoff so other wallets' due closes get their turn.
+      const retryAt = new Date(now().getTime() + backoffMs).toISOString();
+      db.applyCloseResult(address, {
+        updates: due.map((c) => ({ key: c.key, attempts: c.attempts, nextCheckAt: retryAt })),
+        deletes: [],
+      });
       return;
     }
     await onApiSuccess();
@@ -202,7 +205,6 @@ export function createPoller(deps: {
 
     const at = now();
     const result: CloseResultInput = { updates: [], deletes: [] };
-    let editFailed = false;
     for (const m of matchCloses(due, historical, at.toISOString())) {
       const { close } = m;
       if (m.kind === 'waiting') {
@@ -217,7 +219,6 @@ export function createPoller(deps: {
         await notifier.edit(close.messageId, formatClosed(current, close.row.data, state)); // 'gone' drops it too
         result.deletes.push(close.key);
       } catch (err) {
-        editFailed = true;
         recordSendError(err);
         const log = { err, wallet: address, position: close.key };
         if (at.getTime() - Date.parse(close.detectedAt) >= EDIT_GIVE_UP_MS) {
@@ -232,16 +233,13 @@ export function createPoller(deps: {
     }
 
     db.applyCloseResult(address, result);
-    if (editFailed) lastFailedCheck = address;
-    else if (lastFailedCheck === address) lastFailedCheck = null;
   }
 
   async function tick(): Promise<void> {
     if (now().getTime() < nextAllowedAt) return;
 
     const wallet = pickNextWallet();
-    const due = db.dueCloseWallets(now().toISOString());
-    const checking = due.find((a) => a !== lastFailedCheck) ?? due[0];
+    const checking = db.dueCloseWallets(now().toISOString())[0];
     // Close checks take priority, but never two ticks in a row while a wallet exists to
     // poll: otherwise a wallet whose check keeps failing would starve opening polls.
     if (checking !== undefined && !(lastTickWasCloseCheck && wallet)) {
