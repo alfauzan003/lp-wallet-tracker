@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { PositionRow, WalletRef } from './detector.js';
+import type { PendingClose, PositionRow, WalletRef } from './detector.js';
 import type { OpenPosition } from './lpagent/types.js';
 
 export interface WalletRecord extends WalletRef {
@@ -20,11 +20,26 @@ export class DuplicateError extends Error {
   }
 }
 
+export interface NewClose {
+  row: PositionRow;
+  messageId: number;
+  detectedAt: string;
+  nextCheckAt: string;
+}
+
 export interface PollResultInput {
   upserts: PositionRow[];
-  deletes: string[];
+  /** Alerted closes: moved from positions to closes. */
+  closes?: NewClose[];
+  /** False alarms: their closes rows are removed (the position itself comes back via upserts). */
+  restores?: string[];
   markBaselined?: boolean;
   polledAt?: string;
+}
+
+export interface CloseResultInput {
+  updates: { key: string; attempts: number; nextCheckAt: string }[];
+  deletes: string[];
 }
 
 export interface Db {
@@ -34,7 +49,11 @@ export interface Db {
   listWallets(): WalletRecord[];
   getPositions(address: string): PositionRow[];
   applyPollResult(address: string, r: PollResultInput): void;
-  walletsWithSuspects(): string[];
+  getCloses(address: string): PendingClose[];
+  /** Wallets with a close due at `now`, earliest due first. */
+  dueCloseWallets(now: string): string[];
+  countCloses(): number;
+  applyCloseResult(address: string, r: CloseResultInput): void;
   close(): void;
 }
 
@@ -52,8 +71,18 @@ CREATE TABLE IF NOT EXISTS positions (
   data_json           TEXT NOT NULL,
   fee_baseline_usd    REAL NOT NULL,
   fee_baseline_native REAL NOT NULL,
-  miss_count          INTEGER NOT NULL DEFAULT 0,
+  miss_count          INTEGER NOT NULL DEFAULT 0, -- unused; kept so older databases open unchanged
   last_seen_at        TEXT NOT NULL,
+  PRIMARY KEY (wallet, position_key)
+);
+CREATE TABLE IF NOT EXISTS closes (
+  wallet        TEXT NOT NULL REFERENCES wallets(address) ON DELETE CASCADE,
+  position_key  TEXT NOT NULL,
+  row_json      TEXT NOT NULL,
+  message_id    INTEGER NOT NULL,
+  detected_at   TEXT NOT NULL,
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  next_check_at TEXT NOT NULL,
   PRIMARY KEY (wallet, position_key)
 );
 `;
@@ -72,8 +101,16 @@ interface PositionDbRow {
   data_json: string;
   fee_baseline_usd: number;
   fee_baseline_native: number;
-  miss_count: number;
   last_seen_at: string;
+}
+
+interface CloseDbRow {
+  position_key: string;
+  row_json: string;
+  message_id: number;
+  detected_at: string;
+  attempts: number;
+  next_check_at: string;
 }
 
 const WALLET_SELECT = `
@@ -98,8 +135,18 @@ function toPositionRow(r: PositionDbRow): PositionRow {
     data: JSON.parse(r.data_json) as OpenPosition,
     feeBaselineUsd: r.fee_baseline_usd,
     feeBaselineNative: r.fee_baseline_native,
-    missCount: r.miss_count,
     lastSeenAt: r.last_seen_at,
+  };
+}
+
+function toPendingClose(r: CloseDbRow): PendingClose {
+  return {
+    key: r.position_key,
+    row: JSON.parse(r.row_json) as PositionRow,
+    messageId: r.message_id,
+    detectedAt: r.detected_at,
+    attempts: r.attempts,
+    nextCheckAt: r.next_check_at,
   };
 }
 
@@ -124,23 +171,36 @@ export function openDb(path: string): Db {
   const selectWallets = db.prepare(`${WALLET_SELECT} ORDER BY w.added_at, w.rowid`);
   const deleteWallet = db.prepare('DELETE FROM wallets WHERE address = ?');
   const selectPositions = db.prepare(
-    'SELECT position_key, data_json, fee_baseline_usd, fee_baseline_native, miss_count, last_seen_at FROM positions WHERE wallet = ? ORDER BY rowid',
+    'SELECT position_key, data_json, fee_baseline_usd, fee_baseline_native, last_seen_at FROM positions WHERE wallet = ? ORDER BY rowid',
   );
   const upsertPosition = db.prepare(`
     INSERT INTO positions (wallet, position_key, data_json, fee_baseline_usd, fee_baseline_native, miss_count, last_seen_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, 0, ?)
     ON CONFLICT (wallet, position_key) DO UPDATE SET
       data_json = excluded.data_json,
       fee_baseline_usd = excluded.fee_baseline_usd,
       fee_baseline_native = excluded.fee_baseline_native,
-      miss_count = excluded.miss_count,
+      miss_count = 0,
       last_seen_at = excluded.last_seen_at`);
   const deletePosition = db.prepare('DELETE FROM positions WHERE wallet = ? AND position_key = ?');
   const markBaselined = db.prepare('UPDATE wallets SET baselined = 1 WHERE address = ?');
   const setPolledAt = db.prepare('UPDATE wallets SET last_polled_at = ? WHERE address = ?');
-  const selectSuspects = db.prepare(
-    'SELECT DISTINCT w.address FROM wallets w JOIN positions p ON p.wallet = w.address WHERE p.miss_count > 0 ORDER BY w.added_at, w.rowid',
+  const insertClose = db.prepare(`
+    INSERT OR REPLACE INTO closes (wallet, position_key, row_json, message_id, detected_at, attempts, next_check_at)
+    VALUES (?, ?, ?, ?, ?, 0, ?)`);
+  const deleteClose = db.prepare('DELETE FROM closes WHERE wallet = ? AND position_key = ?');
+  const updateClose = db.prepare(
+    'UPDATE closes SET attempts = ?, next_check_at = ? WHERE wallet = ? AND position_key = ?',
   );
+  const selectCloses = db.prepare(
+    'SELECT position_key, row_json, message_id, detected_at, attempts, next_check_at FROM closes WHERE wallet = ? ORDER BY rowid',
+  );
+  const selectDueWallets = db.prepare(`
+    SELECT w.address FROM wallets w JOIN closes c ON c.wallet = w.address
+    WHERE c.next_check_at <= ?
+    GROUP BY w.address
+    ORDER BY MIN(c.next_check_at), w.added_at, w.rowid`);
+  const countClosesStmt = db.prepare('SELECT COUNT(*) AS n FROM closes');
 
   const getWallet = (address: string): WalletRecord | null => {
     const row = selectWallet.get(address.toLowerCase()) as WalletDbRow | undefined;
@@ -157,13 +217,22 @@ export function openDb(path: string): Db {
         JSON.stringify(row.data),
         row.feeBaselineUsd,
         row.feeBaselineNative,
-        row.missCount,
         row.lastSeenAt,
       );
     }
-    for (const key of r.deletes) deletePosition.run(address, key);
+    for (const c of r.closes ?? []) {
+      deletePosition.run(address, c.row.key);
+      insertClose.run(address, c.row.key, JSON.stringify(c.row), c.messageId, c.detectedAt, c.nextCheckAt);
+    }
+    for (const key of r.restores ?? []) deleteClose.run(address, key);
     if (r.markBaselined) markBaselined.run(address);
     if (r.polledAt !== undefined) setPolledAt.run(r.polledAt, address);
+  });
+
+  const closeTx = db.transaction((address: string, r: CloseResultInput) => {
+    if (!selectWallet.get(address)) return;
+    for (const u of r.updates) updateClose.run(u.attempts, u.nextCheckAt, address, u.key);
+    for (const key of r.deletes) deleteClose.run(address, key);
   });
 
   const removeTx = db.transaction((addressOrLabel: string): WalletRecord | null => {
@@ -173,7 +242,7 @@ export function openDb(path: string): Db {
         : selectWalletByLabel.get(addressOrLabel)
     ) as WalletDbRow | undefined;
     if (!row) return null;
-    deleteWallet.run(row.address); // positions removed by ON DELETE CASCADE
+    deleteWallet.run(row.address); // positions and closes removed by ON DELETE CASCADE
     return toRecord(row);
   });
 
@@ -194,7 +263,10 @@ export function openDb(path: string): Db {
     getPositions: (address) =>
       (selectPositions.all(address.toLowerCase()) as PositionDbRow[]).map(toPositionRow),
     applyPollResult: (address, r) => applyTx(address.toLowerCase(), r),
-    walletsWithSuspects: () => (selectSuspects.all() as { address: string }[]).map((r) => r.address),
+    getCloses: (address) => (selectCloses.all(address.toLowerCase()) as CloseDbRow[]).map(toPendingClose),
+    dueCloseWallets: (now) => (selectDueWallets.all(now) as { address: string }[]).map((r) => r.address),
+    countCloses: () => (countClosesStmt.get() as { n: number }).n,
+    applyCloseResult: (address, r) => closeTx(address.toLowerCase(), r),
     close: () => {
       db.close();
     },
