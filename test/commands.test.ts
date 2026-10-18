@@ -17,7 +17,7 @@ function status(over: Partial<PollerStatus> = {}): PollerStatus {
     startedAt: new Date(now.getTime() - 90 * 60_000),
     walletCount: 2,
     cycleSeconds: 24,
-    pendingConfirms: 1,
+    pendingCloses: 1,
     lastError: null,
     lastSendError: null,
     apiDown: false,
@@ -124,11 +124,9 @@ describe('cmdList', () => {
           data: { positionKey: 'v3:1' } as never,
           feeBaselineUsd: 0,
           feeBaselineNative: 0,
-          missCount: 0,
           lastSeenAt: now.toISOString(),
         },
       ],
-      deletes: [],
       polledAt: new Date(now.getTime() - 5 * 60_000).toISOString(),
     });
     cmdAdd(db, B, now);
@@ -143,7 +141,7 @@ describe('cmdList', () => {
   it('list ago formats', () => {
     cmdAdd(db, A, now);
     const at = (ms: number) =>
-      db.applyPollResult(A, { upserts: [], deletes: [], polledAt: new Date(now.getTime() - ms).toISOString() });
+      db.applyPollResult(A, { upserts: [], polledAt: new Date(now.getTime() - ms).toISOString() });
     at(30_000);
     expect(cmdList(db, now)).toContain('checked 30s ago');
     at(3 * 3_600_000);
@@ -157,7 +155,7 @@ describe('cmdStatus', () => {
     expect(r.split('\n')).toEqual([
       'Uptime: 1h 30m',
       'Wallets: 2 · full cycle ≈ 24s',
-      'Pending close checks: 1',
+      'Pending closes: 1',
       'Last API error: none',
       'Last send error: none',
     ]);

@@ -3,7 +3,7 @@ import { BOT_COMMANDS, createBot } from './bot.js';
 import { loadConfig } from './config.js';
 import { openDb } from './db.js';
 import { createLpAgentClient } from './lpagent/client.js';
-import { createTelegramNotify } from './notify.js';
+import { createTelegramNotifier } from './notify.js';
 import { createPoller } from './poller.js';
 
 const logger = pino({ level: 'info' });
@@ -32,8 +32,8 @@ async function main(): Promise<void> {
     db,
     getStatus: () => poller.status(),
   });
-  const notify = createTelegramNotify(bot.api, config.telegramOwnerId);
-  const poller = createPoller({ db, client, notify, logger, config });
+  const notifier = createTelegramNotifier(bot.api, config.telegramOwnerId);
+  const poller = createPoller({ db, client, notifier, logger, config });
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {

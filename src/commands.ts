@@ -59,7 +59,7 @@ export function cmdStatus(s: PollerStatus, now: Date): string {
   const lines = [
     `Uptime: ${formatDuration(now.getTime() - s.startedAt.getTime())}`,
     `Wallets: ${s.walletCount} · full cycle ≈ ${s.cycleSeconds}s`,
-    `Pending close checks: ${s.pendingConfirms}`,
+    `Pending closes: ${s.pendingCloses}`,
     s.lastError
       ? `Last API error: ${escapeHtml(truncate(s.lastError.message))} (${ago(s.lastError.at, now)})`
       : 'Last API error: none',
